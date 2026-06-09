@@ -3,6 +3,7 @@ from datetime import datetime
 import pytz
 
 from services.market_data import get_market_data_and_detect_anomalies
+from services.orchestrator import process_anomalies
 
 # US/Eastern timezone (important for market hours)
 tz = pytz.timezone("US/Eastern")
@@ -24,7 +25,21 @@ def job():
     print(f"Running anomaly job at {now}")
     results, flagged = get_market_data_and_detect_anomalies()
 
-    print(f"Done. Flagged: {len(flagged)}")
+    # Also process CSV backlog so a missed run does not leave anomalies unhandled
+    from services.market_data import get_unprocessed_anomalies_from_csv
+    from services.orchestrator import merge_anomalies
+
+    backlog = get_unprocessed_anomalies_from_csv()
+    to_process = merge_anomalies(flagged, backlog)
+
+    if to_process:
+        written = process_anomalies(to_process)
+        print(
+            f"Done. Live flagged: {len(flagged)}, backlog: {len(backlog)}, "
+            f"theses written: {len(written)}"
+        )
+    else:
+        print("Done. No anomalies to process.")
 
 
 scheduler = BlockingScheduler(timezone=tz)
